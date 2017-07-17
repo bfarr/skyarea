@@ -275,7 +275,7 @@ class ClusteredSkyKDEPosterior(object):
         bics = [self._bic()]
         assigns = [self.assign]
         means = [self.means]
-        for k in range(2, 41):
+        for k in range(2, 10):
             self._set_up_optimal_kmeans(k, self.ntrials)
             ks.append(k)
             bics.append(self._bic())
