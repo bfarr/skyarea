@@ -10,6 +10,12 @@ from lalinference.bayestar import distance
 from lalinference.healpix_tree import (
     HEALPIX_MACHINE_ORDER, HEALPIX_MACHINE_NSIDE, HEALPixTree)
 
+from lal import CachedDetectors
+from lal import LALDetectorIndexLHODIFF, LALDetectorIndexLLODIFF
+from lalinference import DetFrameToEquatorial, EquatorialToDetFrame
+
+H1 = CachedDetectors[LALDetectorIndexLHODIFF]
+L1 = CachedDetectors[LALDetectorIndexLLODIFF]
 
 def km_assign(mus, cov, pts):
     """Implements the assignment step in the k-means algorithm.  Given a
@@ -125,7 +131,7 @@ class ClusteredSkyKDEPosterior(object):
 
     """
 
-    def __init__(self, pts, ntrials=5, means=None, assign=None, acc=1e-2):
+    def __init__(self, pts, geocenter_time, ntrials=5, means=None, assign=None, acc=1e-2):
         """Set up the posterior with the given RA-DEC points.
 
         :param pts: The sky points, in RA-DEC coordinates.
@@ -149,8 +155,13 @@ class ClusteredSkyKDEPosterior(object):
         """
         self._acc = acc
 
-        pts = pts.copy()
-        pts[:, 1] = np.sin(pts[:, 1])
+        self._geocenter_time = geocenter_time
+
+        pts = np.array([EquatorialToDetFrame(H1, L1, geocenter_time, pt[0], pt[1]) for pt in pts])
+        pts[:, 2] = pts[:, 2] % (2 * np.pi)
+        self._toa_det0 = np.mean(pts[:, 0])
+        pts = pts[:, 1:]
+
         self._pts = pts
 
         ppts = np.random.permutation(pts)
@@ -342,34 +353,29 @@ class ClusteredSkyKDEPosterior(object):
 
     def _set_up_greedy_order(self):
         pts = self.ranking_pts.copy()
-        pts[:, 1] = np.arcsin(pts[:, 1])
 
         posts = self.posterior(pts)
         self._greedy_order = np.argsort(posts)[::-1]
         self._greedy_posteriors = posts[self.greedy_order]
 
-    def posterior(self, pts):
+    def posterior(self, pts, det_frame=False):
         """Returns the clustered KDE estimate of the sky density per steradian
         at the given points in RA-DEC.
 
         """
-        pts = pts.copy()
         pts = np.atleast_2d(pts)
-        pts[:, 1] = np.sin(pts[:, 1])
 
         post = np.zeros(pts.shape[0])
+        if not det_frame:
+            sky_pts = pts
+            pts = np.array([EquatorialToDetFrame(H1, L1, self._geocenter_time, pt[0], pt[1])[1:] for pt in sky_pts])
+            pts[:, 1] = pts[:, 1] % (2 * np.pi)
 
-        ras = pts[:, 0]
-        sin_decs = pts[:, 1]
+        alphas = pts[:, 0]
+        azimuths = pts[:, 1]
 
-        for dra in [0.0, 2.0*np.pi, -2.0*np.pi]:
-            pts = np.column_stack((ras+dra, sin_decs))
-            post += self._posterior(pts)
-
-            pts = np.column_stack((ras+dra, 2.0 - sin_decs))
-            post += self._posterior(pts)
-
-            pts = np.column_stack((ras+dra, -2.0 - sin_decs))
+        for daz in [0.0, 2.0*np.pi, -2.0*np.pi]:
+            pts = np.column_stack((alphas, azimuths+daz))
             post += self._posterior(pts)
 
         return post
@@ -407,9 +413,8 @@ class ClusteredSkyKDEPosterior(object):
         nparams = self.k*ndim + self.k*((ndim+1)*(ndim)/2) + self.k - 1
 
         pts = self.kde_pts.copy()
-        pts[:, 1] = np.arcsin(pts[:, 1])
 
-        return np.sum(np.log(self.posterior(pts))) - nparams/2.0*np.log(npts)
+        return np.sum(np.log(self.posterior(pts, det_frame=True))) - nparams/2.0*np.log(npts)
 
     def _split_range(self, n, nmax=100000):
         if n < nmax:
@@ -422,8 +427,9 @@ class ClusteredSkyKDEPosterior(object):
             return list(zip(lows, highs))
 
     def _adaptive_grid(self, order=HEALPIX_MACHINE_ORDER):
-        theta = np.arccos(self.pts[:, 1])
-        phi = self.pts[:, 0]
+        pts = np.array([DetFrameToEquatorial(H1, L1, self._toa_det0, pt[0], pt[1])[1:] for pt in self.pts])
+        theta = 0.5 * np.pi - pts[:, 1]
+        phi = pts[:, 0]
         ipix = hp.ang2pix(
             HEALPIX_MACHINE_NSIDE, theta, phi, nest=True).astype(np.uint64)
         return HEALPixTree(ipix, max_samples_per_pixel=1, max_order=order)

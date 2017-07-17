@@ -66,7 +66,7 @@ def plot_assign(output, skypost):
         plt.plot(skypost.kde_pts[sel, 0], skypost.kde_pts[sel, 1], ',')
 
     plt.xlabel(r'$\alpha$')
-    plt.ylabel(r'$\sin \delta$')
+    plt.ylabel('azimuth')
 
     plt.savefig(output)
 
@@ -169,6 +169,7 @@ if __name__ == '__main__':
     mkpath(args.outdir)
 
     if args.loadpost is None:
+        geocenter_time = np.mean(data['time'])
         if args.enable_distance_map:
             try:
                 dist = data['dist']
@@ -182,7 +183,7 @@ if __name__ == '__main__':
         else:
             pts = np.column_stack((data['ra'], data['dec']))
             KDEClass = sac.ClusteredSkyKDEPosterior
-        skypost = KDEClass(pts, ntrials=args.trials)
+        skypost = KDEClass(pts, geocenter_time, ntrials=args.trials)
 
         print('pickling ...')
         with open(os.path.join(args.outdir, 'skypost.obj'), 'w') as out:
