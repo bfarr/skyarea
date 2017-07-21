@@ -358,7 +358,20 @@ class ClusteredSkyKDEPosterior(object):
         self._greedy_order = np.argsort(posts)[::-1]
         self._greedy_posteriors = posts[self.greedy_order]
 
-    def posterior(self, pts, det_frame=False):
+    def posterior(self, pts):
+        """Returns the clustered KDE estimate of the sky density per steradian
+        at the given points in RA-DEC.
+
+        """
+        pts = np.atleast_2d(pts)
+
+        sky_pts = pts
+        pts = np.array([EquatorialToDetFrame(H1, L1, self._geocenter_time, pt[0], pt[1])[1:] for pt in sky_pts])
+        pts[:, 1] = pts[:, 1] % (2 * np.pi)
+
+        return self.posterior_detframe(pts)
+
+    def posterior_detframe(self, pts):
         """Returns the clustered KDE estimate of the sky density per steradian
         at the given points in RA-DEC.
 
@@ -366,11 +379,6 @@ class ClusteredSkyKDEPosterior(object):
         pts = np.atleast_2d(pts)
 
         post = np.zeros(pts.shape[0])
-        if not det_frame:
-            sky_pts = pts
-            pts = np.array([EquatorialToDetFrame(H1, L1, self._geocenter_time, pt[0], pt[1])[1:] for pt in sky_pts])
-            pts[:, 1] = pts[:, 1] % (2 * np.pi)
-
         alphas = pts[:, 0]
         azimuths = pts[:, 1]
 
@@ -414,7 +422,7 @@ class ClusteredSkyKDEPosterior(object):
 
         pts = self.kde_pts.copy()
 
-        return np.sum(np.log(self.posterior(pts, det_frame=True))) - nparams/2.0*np.log(npts)
+        return np.sum(np.log(self.posterior_detframe(pts))) - nparams/2.0*np.log(npts)
 
     def _split_range(self, n, nmax=100000):
         if n < nmax:
